@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------
+ * FOM / ADS-B Quality Monitor — Global Styles
+ * Font families are loaded via next/font/google in layout.tsx
+ * and exposed as CSS variables: --font-display, --font-inter, --font-mono-data
+ * ------------------------------------------------------------------ */
+
+/* Font utility classes — matching the prototype's class names */
+.font-display {
+  font-family: var(--font-display), "Space Grotesk", sans-serif;
+}
+
+.font-mono-data {
+  font-family: var(--font-mono-data), "JetBrains Mono", monospace;
+}
+
+body {
+  font-family: var(--font-inter), "Inter", sans-serif;
+}
+
+/* ------------------------------------------------------------------
+ * Radar sweep animation
+ * ------------------------------------------------------------------ */
+@keyframes airnav-sweep-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.airnav-sweep {
+  animation: airnav-sweep-spin 4s linear infinite;
+  transform-origin: 50% 50%;
+}
+
+/* ------------------------------------------------------------------
+ * Blip pulse animation
+ * ------------------------------------------------------------------ */
+@keyframes airnav-blip-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.6);
+  }
+}
+
+.airnav-blip {
+  animation: airnav-blip-pulse 2.4s ease-in-out infinite;
+}
+
+/* ------------------------------------------------------------------
+ * Table row hover
+ * ------------------------------------------------------------------ */
+.airnav-row:hover {
+  background-color: #f0f6ff;
+}
+
+/* ------------------------------------------------------------------
+ * Reduced motion
+ * ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  .airnav-sweep,
+  .airnav-blip,
+  .airnav-toast,
+  .airnav-toast-exit {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------
+ * Toast notification animations
+ * ------------------------------------------------------------------ */
+@keyframes airnav-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes airnav-toast-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+.airnav-toast {
+  animation: airnav-toast-in 0.35s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+}
+
+.airnav-toast-exit {
+  animation: airnav-toast-out 0.3s cubic-bezier(0.55, 0, 1, 0.45) forwards;
+}
