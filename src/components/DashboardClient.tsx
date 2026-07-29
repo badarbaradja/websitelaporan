@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { getTargets } from "@/lib/queries";
 import type { TargetWithPa } from "@/lib/queries";
-import { playAlertSound } from "@/lib/playAlertSound";
+import { playAlertSound, resumeAudioContext } from "@/lib/playAlertSound";
 import FOMDashboard from "./FOMDashboard";
 import AlertToast from "./AlertToast";
 import type { ToastData } from "./AlertToast";
@@ -43,8 +43,14 @@ export default function DashboardClient({ initialTargets }: DashboardClientProps
     }
   }, []);
 
-  /** Toggle sound on/off and persist */
+  /** Toggle sound on/off and persist.
+   *  Calling resumeAudioContext() here is CRITICAL — this runs inside a
+   *  direct onClick handler, which counts as a user gesture and unlocks
+   *  the AudioContext for the rest of the browser session. */
   const toggleSound = useCallback(() => {
+    // Unlock audio on every click (idempotent, only matters the first time)
+    resumeAudioContext();
+
     setSoundEnabled((prev) => {
       const next = !prev;
       soundEnabledRef.current = next;
@@ -55,6 +61,12 @@ export default function DashboardClient({ initialTargets }: DashboardClientProps
       }
       return next;
     });
+  }, []);
+
+  /** Test sound — plays a beep immediately (also a user gesture → unlocks audio) */
+  const testSound = useCallback(() => {
+    resumeAudioContext();
+    playAlertSound("warn");
   }, []);
 
   /** Dismiss a toast by ID */
@@ -156,6 +168,7 @@ export default function DashboardClient({ initialTargets }: DashboardClientProps
         isConnected={isConnected}
         soundEnabled={soundEnabled}
         onToggleSound={toggleSound}
+        onTestSound={testSound}
       />
       <AlertToast toasts={toasts} onDismiss={dismissToast} />
     </>

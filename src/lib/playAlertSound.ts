@@ -5,24 +5,44 @@
  * - "warn": single 660Hz tone, 150ms — a gentle "notice" beep
  * - "bad":  two rapid tones (880Hz → 660Hz), 150ms each — urgent double beep
  *
- * All AudioContext access is wrapped in try-catch so a browser that blocks
- * audio (e.g. autoplay policy before user gesture) won't crash the app.
+ * IMPORTANT — AudioContext & browser autoplay policy:
+ * The AudioContext is created ONCE as a module-level singleton. Browsers
+ * create it in "suspended" state and only allow resume() inside a direct
+ * user-gesture event handler (click/tap). Call resumeAudioContext() from
+ * your onClick handler so the singleton gets unlocked for the rest of
+ * the session. After that, playAlertSound() will work from any context
+ * (Realtime callbacks, timers, etc.).
  */
 
 let audioCtx: AudioContext | null = null;
 
-function getAudioContext(): AudioContext | null {
+/** Get (or lazily create) the singleton AudioContext. */
+function getOrCreateContext(): AudioContext | null {
   try {
     if (!audioCtx) {
-      audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    }
-    // Resume if suspended (autoplay policy)
-    if (audioCtx.state === "suspended") {
-      audioCtx.resume();
+      const Ctor = window.AudioContext
+        || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      audioCtx = new Ctor();
     }
     return audioCtx;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Resume the singleton AudioContext.
+ * MUST be called from a direct user-gesture handler (e.g. onClick)
+ * at least once to unlock audio for the rest of the session.
+ */
+export function resumeAudioContext(): void {
+  try {
+    const ctx = getOrCreateContext();
+    if (ctx && ctx.state === "suspended") {
+      ctx.resume();
+    }
+  } catch {
+    // ignore
   }
 }
 
@@ -47,8 +67,8 @@ function playBeep(ctx: AudioContext, frequency: number, startTime: number, durat
 
 export function playAlertSound(tone: "warn" | "bad"): void {
   try {
-    const ctx = getAudioContext();
-    if (!ctx) return;
+    const ctx = getOrCreateContext();
+    if (!ctx || ctx.state === "suspended") return; // not unlocked yet
 
     const now = ctx.currentTime;
     const beepDuration = 0.15; // 150ms

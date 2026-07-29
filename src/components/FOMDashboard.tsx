@@ -154,9 +154,10 @@ type FOMDashboardProps = {
   isConnected: boolean;
   soundEnabled: boolean;
   onToggleSound: () => void;
+  onTestSound: () => void;
 };
 
-export default function FOMDashboard({ targets, isConnected, soundEnabled, onToggleSound }: FOMDashboardProps) {
+export default function FOMDashboard({ targets, isConnected, soundEnabled, onToggleSound, onTestSound }: FOMDashboardProps) {
   const [selectedId, setSelectedId] = useState("CPA332");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -208,7 +209,7 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
               </>
             )}
           </span>
-          <span className="flex items-center gap-3">
+          <span className="flex items-center gap-2">
             <button
               onClick={onToggleSound}
               className="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs transition-colors"
@@ -221,7 +222,18 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
               aria-label={soundEnabled ? "Matikan suara alert" : "Aktifkan suara alert"}
             >
               {soundEnabled ? <Volume2 size={12} /> : <VolumeX size={12} />}
-              {soundEnabled ? "🔊" : "🔇"}
+            </button>
+            <button
+              onClick={onTestSound}
+              className="rounded-full px-2 py-0.5 text-[10px] transition-colors"
+              style={{
+                color: "rgba(186,222,255,0.7)",
+                backgroundColor: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.1)",
+              }}
+              title="Klik untuk tes apakah suara berfungsi"
+            >
+              Tes ♪
             </button>
             <span className="hidden items-center gap-1.5 sm:flex" style={{ color: "rgba(186,222,255,0.85)" }}>
               {isConnected ? (
