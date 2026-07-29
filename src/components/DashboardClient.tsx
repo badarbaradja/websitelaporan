@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { getTargets } from "@/lib/queries";
 import type { TargetWithPa } from "@/lib/queries";
+import { playAlertSound } from "@/lib/playAlertSound";
 import FOMDashboard from "./FOMDashboard";
 import AlertToast from "./AlertToast";
 import type { ToastData } from "./AlertToast";
+
+const SOUND_STORAGE_KEY = "fom-alert-sound-enabled";
 
 type DashboardClientProps = {
   initialTargets: TargetWithPa[];
@@ -16,6 +19,43 @@ export default function DashboardClient({ initialTargets }: DashboardClientProps
   const [targets, setTargets] = useState<TargetWithPa[]>(initialTargets);
   const [isConnected, setIsConnected] = useState(false);
   const [toasts, setToasts] = useState<ToastData[]>([]);
+
+  // Sound enabled state — default true, persisted in localStorage
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const soundEnabledRef = useRef(true);
+
+  // Keep ref in sync so realtime callback can read latest value
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
+
+  // Load persisted preference on mount (client-only)
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SOUND_STORAGE_KEY);
+      if (stored !== null) {
+        const val = stored === "true";
+        setSoundEnabled(val);
+        soundEnabledRef.current = val;
+      }
+    } catch {
+      // localStorage unavailable, keep default
+    }
+  }, []);
+
+  /** Toggle sound on/off and persist */
+  const toggleSound = useCallback(() => {
+    setSoundEnabled((prev) => {
+      const next = !prev;
+      soundEnabledRef.current = next;
+      try {
+        localStorage.setItem(SOUND_STORAGE_KEY, String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
 
   /** Dismiss a toast by ID */
   const dismissToast = useCallback((id: string) => {
@@ -55,8 +95,10 @@ export default function DashboardClient({ initialTargets }: DashboardClientProps
           // Refresh dashboard data
           refresh();
 
-          // If PA < 6, show a toast notification
-          if (newRow.pa < 6) {
+          // If PA <= 6, show a toast notification (warn for 6, bad for <6)
+          if (newRow.pa <= 6) {
+            const tone: "warn" | "bad" = newRow.pa === 6 ? "warn" : "bad";
+
             // Look up target info from current targets state
             setTargets((currentTargets) => {
               const target = currentTargets.find((t) => t.id === newRow.target_id);
@@ -71,9 +113,15 @@ export default function DashboardClient({ initialTargets }: DashboardClientProps
                 country: target?.country ?? "Tidak diketahui",
                 pa: newRow.pa,
                 time: timeStr,
+                tone,
               };
 
               setToasts((prev) => [...prev, toast]);
+
+              // Play alert sound if enabled (read from ref for latest value)
+              if (soundEnabledRef.current) {
+                playAlertSound(tone);
+              }
 
               return currentTargets; // Don't modify targets here
             });
@@ -103,7 +151,12 @@ export default function DashboardClient({ initialTargets }: DashboardClientProps
 
   return (
     <>
-      <FOMDashboard targets={targets} isConnected={isConnected} />
+      <FOMDashboard
+        targets={targets}
+        isConnected={isConnected}
+        soundEnabled={soundEnabled}
+        onToggleSound={toggleSound}
+      />
       <AlertToast toasts={toasts} onDismiss={dismissToast} />
     </>
   );

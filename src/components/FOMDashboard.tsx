@@ -27,6 +27,8 @@ import {
   Wifi,
   WifiOff,
   PlusCircle,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import Link from "next/link";
 import type { TargetWithPa } from "@/lib/queries";
@@ -150,9 +152,11 @@ function RadarSweep({ targets }: { targets: TargetWithPa[] }) {
 type FOMDashboardProps = {
   targets: TargetWithPa[];
   isConnected: boolean;
+  soundEnabled: boolean;
+  onToggleSound: () => void;
 };
 
-export default function FOMDashboard({ targets, isConnected }: FOMDashboardProps) {
+export default function FOMDashboard({ targets, isConnected, soundEnabled, onToggleSound }: FOMDashboardProps) {
   const [selectedId, setSelectedId] = useState("CPA332");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -204,16 +208,32 @@ export default function FOMDashboard({ targets, isConnected }: FOMDashboardProps
               </>
             )}
           </span>
-          <span className="hidden items-center gap-1.5 sm:flex" style={{ color: "rgba(186,222,255,0.85)" }}>
-            {isConnected ? (
-              <>
-                <Wifi size={12} /> Realtime · Supabase
-              </>
-            ) : (
-              <>
-                <WifiOff size={12} /> Koneksi terputus
-              </>
-            )}
+          <span className="flex items-center gap-3">
+            <button
+              onClick={onToggleSound}
+              className="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs transition-colors"
+              style={{
+                color: soundEnabled ? "rgba(186,222,255,0.85)" : "rgba(186,222,255,0.45)",
+                backgroundColor: soundEnabled ? "rgba(56,189,248,0.12)" : "rgba(255,255,255,0.06)",
+                border: soundEnabled ? "1px solid rgba(56,189,248,0.3)" : "1px solid rgba(255,255,255,0.1)",
+              }}
+              title={soundEnabled ? "Suara alert aktif — klik untuk mute" : "Suara alert mati — klik untuk aktifkan"}
+              aria-label={soundEnabled ? "Matikan suara alert" : "Aktifkan suara alert"}
+            >
+              {soundEnabled ? <Volume2 size={12} /> : <VolumeX size={12} />}
+              {soundEnabled ? "🔊" : "🔇"}
+            </button>
+            <span className="hidden items-center gap-1.5 sm:flex" style={{ color: "rgba(186,222,255,0.85)" }}>
+              {isConnected ? (
+                <>
+                  <Wifi size={12} /> Realtime · Supabase
+                </>
+              ) : (
+                <>
+                  <WifiOff size={12} /> Koneksi terputus
+                </>
+              )}
+            </span>
           </span>
         </div>
       </div>

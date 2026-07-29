@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { AlertOctagon, X } from "lucide-react";
+import { AlertOctagon, AlertTriangle, X } from "lucide-react";
 
 /* ------------------------------------------------------------------
  * Types
@@ -14,6 +14,7 @@ export type ToastData = {
   country: string;
   pa: number;
   time: string;
+  tone: "warn" | "bad";
 };
 
 type ToastItemProps = {
@@ -22,11 +23,50 @@ type ToastItemProps = {
 };
 
 /* ------------------------------------------------------------------
+ * Tone-specific styles
+ * ------------------------------------------------------------------ */
+
+const TOAST_STYLES = {
+  warn: {
+    border: "1px solid #f3cc7d",
+    borderLeft: "4px solid #f59e0b",
+    iconBg: "#fff4e0",
+    iconColor: "#a15c00",
+    titleColor: "#a15c00",
+    badgeBg: "#fff4e0",
+    badgeColor: "#a15c00",
+    badgeBorder: "1px solid #f3cc7d",
+    bodyColor: "#78560b",
+    hoverBg: "hover:bg-amber-50",
+  },
+  bad: {
+    border: "1px solid #f3aeae",
+    borderLeft: "4px solid #ef4444",
+    iconBg: "#fde9e9",
+    iconColor: "#b91c1c",
+    titleColor: "#b91c1c",
+    badgeBg: "#fde9e9",
+    badgeColor: "#b91c1c",
+    badgeBorder: "1px solid #f3aeae",
+    bodyColor: "#7f1d1d",
+    hoverBg: "hover:bg-red-50",
+  },
+};
+
+/* ------------------------------------------------------------------
  * Single toast card
  * ------------------------------------------------------------------ */
 
 function ToastItem({ toast, onDismiss }: ToastItemProps) {
   const [exiting, setExiting] = useState(false);
+  const s = TOAST_STYLES[toast.tone];
+
+  const Icon = toast.tone === "bad" ? AlertOctagon : AlertTriangle;
+
+  const message =
+    toast.tone === "bad"
+      ? `PA turun ke ${toast.pa}. Berpotensi intermittent target.`
+      : `PA turun ke 6. Perlu pemantauan lanjut.`;
 
   const dismiss = useCallback(() => {
     setExiting(true);
@@ -46,8 +86,8 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
       role="alert"
       style={{
         backgroundColor: "#ffffff",
-        border: "1px solid #f3aeae",
-        borderLeft: "4px solid #ef4444",
+        border: s.border,
+        borderLeft: s.borderLeft,
         borderRadius: "12px",
         padding: "12px 14px",
         boxShadow: "0 8px 24px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)",
@@ -64,11 +104,11 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
         style={{
           width: "28px",
           height: "28px",
-          backgroundColor: "#fde9e9",
+          backgroundColor: s.iconBg,
           marginTop: "1px",
         }}
       >
-        <AlertOctagon size={14} color="#b91c1c" />
+        <Icon size={14} color={s.iconColor} />
       </div>
 
       {/* Content */}
@@ -76,24 +116,24 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
         <div className="flex items-center gap-2">
           <span
             className="font-mono-data text-sm font-semibold"
-            style={{ color: "#b91c1c" }}
+            style={{ color: s.titleColor }}
           >
             {toast.flag} {toast.targetId}
           </span>
           <span
             className="font-mono-data inline-flex items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-bold"
             style={{
-              backgroundColor: "#fde9e9",
-              color: "#b91c1c",
-              border: "1px solid #f3aeae",
+              backgroundColor: s.badgeBg,
+              color: s.badgeColor,
+              border: s.badgeBorder,
               minWidth: "28px",
             }}
           >
             PA {toast.pa}
           </span>
         </div>
-        <p className="mt-1 text-xs leading-relaxed" style={{ color: "#7f1d1d" }}>
-          PA turun ke {toast.pa}. Berpotensi intermittent target.
+        <p className="mt-1 text-xs leading-relaxed" style={{ color: s.bodyColor }}>
+          {message}
         </p>
         <div className="mt-1 flex items-center gap-2">
           <span className="text-[10px]" style={{ color: "#94a3b8" }}>
@@ -105,7 +145,7 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
       {/* Close button */}
       <button
         onClick={dismiss}
-        className="shrink-0 rounded-md p-1 transition-colors hover:bg-red-50"
+        className={`shrink-0 rounded-md p-1 transition-colors ${s.hoverBg}`}
         style={{ color: "#d1d5db" }}
         aria-label="Tutup notifikasi"
       >

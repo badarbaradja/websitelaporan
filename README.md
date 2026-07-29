@@ -151,24 +151,46 @@ Untuk **melihat daftar cron job** yang aktif:
 select jobid, jobname, schedule, command from cron.job;
 ```
 
-## 5. Toast Notification
+## 5. Toast Notification + Suara Alert
 
-Setiap kali ada PA reading baru dengan nilai < 6, toast merah muncul di
-pojok kanan atas dashboard:
+Setiap kali ada PA reading baru dengan nilai ≤ 6, toast notification muncul
+di pojok kanan atas dashboard. Dua jenis toast berdasarkan tingkat keparahan:
+
+| Kondisi | Tone | Warna Toast | Suara | Pesan |
+|---|---|---|---|---|
+| PA = 6 | `warn` | Kuning (amber) | 1× beep rendah (660Hz) | "Perlu pemantauan lanjut" |
+| PA < 6 | `bad` | Merah | 2× beep tinggi (880→660Hz) | "Berpotensi intermittent target" |
+
+Fitur toast:
 - **Auto-dismiss** setelah 6 detik
 - **Stackable** — beberapa toast bisa muncul bersamaan
 - **Manual close** — klik ikon × untuk menutup lebih awal
 - Animasi slide-in dari kanan + slide-out saat hilang
 
+### Suara Alert (Web Audio API)
+
+Suara alert dihasilkan langsung oleh browser menggunakan Web Audio API
+(oscillator) — tidak membutuhkan file audio eksternal.
+
+**Toggle mute/unmute:** Tombol speaker 🔊/🔇 ada di **top bar** dashboard
+(samping kanan, dekat indikator koneksi). Preferensi disimpan di
+`localStorage` (key: `fom-alert-sound-enabled`), default aktif.
+
+> **⚠️ Catatan autoplay policy:** Browser modern (Chrome, Edge, dll.)
+> memblokir audio yang diputar sebelum ada interaksi user di halaman.
+> **Klik tombol toggle suara sekali di awal sesi** sebelum demo dimulai
+> untuk meng-unlock audio context — setelah itu suara pasti terdengar
+> setiap kali toast muncul.
+
 ## 6. Ambang status PA
 
-| PA | Status | Warna |
-|---|---|---|
-| ≥ 9 | Sangat Baik | Hijau |
-| 8 | Baik | Hijau |
-| 7 | Cukup Baik | Hijau |
-| 6 | Perlu Perhatian | Kuning |
-| < 6 | Menurun | Merah + Toast ⚠️ |
+| PA | Status | Warna | Notifikasi |
+|---|---|---|---|
+| ≥ 9 | Sangat Baik | Hijau | — |
+| 8 | Baik | Hijau | — |
+| 7 | Cukup Baik | Hijau | — |
+| 6 | Perlu Perhatian | Kuning | Toast ⚠️ + beep |
+| < 6 | Menurun | Merah | Toast 🚨 + double beep |
 
 ## 7. Desain
 
