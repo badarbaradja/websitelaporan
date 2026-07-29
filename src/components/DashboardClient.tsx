@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { getTargets } from "@/lib/queries";
 import type { TargetWithPa } from "@/lib/queries";
-import { playAlertSound, resumeAudioContext } from "@/lib/playAlertSound";
+import { playAlertSound, resumeAudioContext, startAlarmLoop } from "@/lib/playAlertSound";
 import FOMDashboard from "./FOMDashboard";
 import AlertToast from "./AlertToast";
 import type { ToastData } from "./AlertToast";
@@ -24,6 +24,10 @@ export default function DashboardClient({ initialTargets }: DashboardClientProps
   const [soundEnabled, setSoundEnabled] = useState(true);
   const soundEnabledRef = useRef(true);
 
+  // Map of active alarm loops: toastId → stop function
+  // Used to clean up repeating alarms when a "bad" toast is dismissed.
+  const alarmLoopsRef = useRef<Map<string, () => void>>(new Map());
+
   // Keep ref in sync so realtime callback can read latest value
   useEffect(() => {
     soundEnabledRef.current = soundEnabled;
@@ -41,6 +45,14 @@ export default function DashboardClient({ initialTargets }: DashboardClientProps
     } catch {
       // localStorage unavailable, keep default
     }
+  }, []);
+
+  // Cleanup all alarm loops on unmount to prevent leaked intervals
+  useEffect(() => {
+    return () => {
+      alarmLoopsRef.current.forEach((stop) => stop());
+      alarmLoopsRef.current.clear();
+    };
   }, []);
 
   /** Toggle sound on/off and persist.
@@ -69,8 +81,15 @@ export default function DashboardClient({ initialTargets }: DashboardClientProps
     playAlertSound("warn");
   }, []);
 
-  /** Dismiss a toast by ID */
+  /** Dismiss a toast by ID — also stops its alarm loop if any */
   const dismissToast = useCallback((id: string) => {
+    // Stop alarm loop for this toast if one exists
+    const stopFn = alarmLoopsRef.current.get(id);
+    if (stopFn) {
+      stopFn();
+      alarmLoopsRef.current.delete(id);
+    }
+
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
@@ -118,8 +137,10 @@ export default function DashboardClient({ initialTargets }: DashboardClientProps
               const now = new Date();
               const timeStr = now.toLocaleTimeString("id-ID", { hour12: false });
 
+              const toastId = `toast-${newRow.id}-${Date.now()}`;
+
               const toast: ToastData = {
-                id: `toast-${newRow.id}-${Date.now()}`,
+                id: toastId,
                 targetId: newRow.target_id,
                 flag: target?.flag ?? "🏳️",
                 country: target?.country ?? "Tidak diketahui",
@@ -130,9 +151,16 @@ export default function DashboardClient({ initialTargets }: DashboardClientProps
 
               setToasts((prev) => [...prev, toast]);
 
-              // Play alert sound if enabled (read from ref for latest value)
-              if (soundEnabledRef.current) {
-                playAlertSound(tone);
+              // Sound handling
+              if (tone === "bad") {
+                // Start repeating alarm loop — runs every 3s until toast is dismissed
+                const stopFn = startAlarmLoop(soundEnabledRef);
+                alarmLoopsRef.current.set(toastId, stopFn);
+              } else {
+                // "warn" — single beep
+                if (soundEnabledRef.current) {
+                  playAlertSound("warn");
+                }
               }
 
               return currentTargets; // Don't modify targets here

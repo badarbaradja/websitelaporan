@@ -74,11 +74,13 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
     setTimeout(() => onDismiss(toast.id), 300);
   }, [toast.id, onDismiss]);
 
-  // Auto-dismiss after 6 seconds
+  // Auto-dismiss after 6 seconds — only for "warn" toasts.
+  // "bad" toasts persist until manually dismissed (alarm behavior).
   useEffect(() => {
+    if (toast.tone !== "warn") return;
     const timer = setTimeout(dismiss, 6000);
     return () => clearTimeout(timer);
-  }, [dismiss]);
+  }, [dismiss, toast.tone]);
 
   return (
     <div

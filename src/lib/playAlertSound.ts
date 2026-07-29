@@ -85,3 +85,35 @@ export function playAlertSound(tone: "warn" | "bad"): void {
     // Silently ignore — audio is non-critical
   }
 }
+
+/**
+ * Start a repeating alarm loop for tone "bad".
+ * Plays the double-beep immediately, then repeats every ALARM_INTERVAL_MS.
+ *
+ * @param soundEnabledRef - a React ref (or plain object with .current)
+ *   that is checked on every tick; when false the beep is skipped but the
+ *   interval keeps running (toast still needs manual dismiss).
+ * @returns A stop function — call it to clearInterval when the toast is
+ *   dismissed. MUST be called to avoid leaked intervals.
+ */
+const ALARM_INTERVAL_MS = 3_000; // 3 seconds between beeps
+
+export function startAlarmLoop(
+  soundEnabledRef: { current: boolean }
+): () => void {
+  // Play immediately on start
+  if (soundEnabledRef.current) {
+    playAlertSound("bad");
+  }
+
+  const intervalId = setInterval(() => {
+    if (soundEnabledRef.current) {
+      playAlertSound("bad");
+    }
+  }, ALARM_INTERVAL_MS);
+
+  // Return a stop function
+  return () => {
+    clearInterval(intervalId);
+  };
+}
