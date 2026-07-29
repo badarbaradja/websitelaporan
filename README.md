@@ -21,7 +21,7 @@ Realtime) + **Tailwind CSS** + **recharts** + **lucide-react**.
 | `src/components/AlertToast.tsx` | Toast notification untuk alert PA < 6 |
 | `src/lib/supabase.ts` | Supabase client singleton |
 | `src/lib/queries.ts` | Data layer (getTargets, addPaReading, dst.) |
-| `supabase/migrations/` | SQL schema + RLS policies |
+| `supabase/migrations/` | SQL schema, RLS policies, pg_cron simulator |
 | `supabase/seed.sql` | Data awal (8 target + 64 PA readings) |
 | `scripts/simulate.mjs` | Simulator PA — insert data acak untuk demo |
 | `FOMDashboard.jsx` | Prototipe asli (referensi, tidak dipakai lagi) |
@@ -46,6 +46,7 @@ cp .env.local.example .env.local
 # Buka Supabase Dashboard → SQL Editor → New query
 # Paste isi supabase/migrations/001_create_tables.sql → Run
 # Paste isi supabase/migrations/002_rls_policies.sql → Run
+# Paste isi supabase/migrations/003_pg_cron_simulator.sql → Run  (simulator otomatis)
 
 # 4. Jalankan seed data
 # Paste isi supabase/seed.sql di SQL Editor → Run
@@ -65,11 +66,37 @@ Buka `http://localhost:3000/input` untuk mencatat nilai PA secara manual.
 Form ini mensimulasikan petugas yang membaca nilai PA dari layar Intelcan
 ADS-B Display dan mencatatnya ke sistem.
 
-## 4. Simulator (untuk demo)
+## 4. Simulator PA
 
-Simulator secara otomatis meng-insert data PA baru secara berkala (setiap
-5–8 detik) ke Supabase, membuat dashboard terasa "hidup" saat presentasi
-tanpa harus isi form manual terus-menerus.
+Ada **dua cara** menjalankan simulator — pilih sesuai kebutuhan:
+
+### 4a. Server-side (pg_cron) — ✅ Direkomendasikan
+
+Simulator jalan **otomatis di server Supabase** setiap **1 menit**, tanpa
+perlu laptop menyala. Data PA terus terisi 24/7 selama cron job aktif.
+
+**Setup sekali:**
+```bash
+# Paste isi file berikut di Supabase Dashboard → SQL Editor → Run:
+supabase/migrations/003_pg_cron_simulator.sql
+```
+
+Setelah dijalankan, function `simulate_pa_tick()` terjadwal via pg_cron.
+Setiap menit, satu target dipilih acak dan PA-nya diupdate menggunakan
+random walk (sama persis dengan logic di `scripts/simulate.mjs`).
+
+- `recorded_by` diisi `'Simulator (cron)'` agar mudah dibedakan dari
+  input manual atau simulator lokal.
+- pg_cron berjalan sebagai role `postgres` (bukan `anon`), sehingga
+  **RLS tidak menghalangi** insert-nya.
+
+> **Catatan:** pg_cron minimum interval = 1 menit. Untuk update lebih
+> cepat, gunakan simulator lokal di bawah.
+
+### 4b. Simulator lokal (untuk demo cepat)
+
+Untuk presentasi langsung yang butuh data berubah setiap 5–8 detik
+(lebih cepat dari cron), jalankan simulator lokal:
 
 ```bash
 # Terminal 1 — dev server (kalau belum jalan)
@@ -92,9 +119,37 @@ Output simulator di terminal:
 [12:03:53] 🇲🇲 UBA1 (Myanmar) : 7 → 6
 ```
 
-Saat PA turun ke < 6, toast notification merah muncul otomatis di pojok
-kanan atas dashboard (via Supabase Realtime). Tekan `Ctrl+C` untuk
-menghentikan simulator.
+Tekan `Ctrl+C` untuk menghentikan.
+
+> **Tips:** Kamu bisa jalankan keduanya bersamaan — cron job sebagai
+> baseline 1 menit, dan simulator lokal untuk burst data saat demo.
+
+### 4c. Menonaktifkan / mengaktifkan kembali cron job
+
+Kalau sewaktu-waktu ingin **menghentikan** simulator server-side, jalankan
+SQL berikut di Supabase SQL Editor:
+
+```sql
+-- Hentikan cron job
+select cron.unschedule('simulate-pa-tick');
+```
+
+Untuk **mengaktifkan kembali:**
+
+```sql
+-- Aktifkan kembali cron job (1 menit interval)
+select cron.schedule(
+  'simulate-pa-tick',
+  '* * * * *',
+  $$select public.simulate_pa_tick()$$
+);
+```
+
+Untuk **melihat daftar cron job** yang aktif:
+
+```sql
+select jobid, jobname, schedule, command from cron.job;
+```
 
 ## 5. Toast Notification
 
