@@ -1,6 +1,13 @@
-import { getTargets } from "@/lib/queries";
+import {
+  getAircraftWithLatestReading,
+  getDashboardStats,
+  getLatestUploadTime,
+  getAircraftHistory,
+  getAnalysisData,
+} from "@/lib/queries";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import DashboardClient from "@/components/DashboardClient";
+import type { PaHistoryEntry } from "@/lib/queries";
 
 export const dynamic = "force-dynamic"; // Always fetch fresh data on each request
 
@@ -27,14 +34,10 @@ function SetupMessage() {
           </li>
           <li className="flex gap-2">
             <span className="font-mono-data text-xs font-semibold text-slate-400">3.</span>
-            Jalankan migration SQL di Supabase SQL Editor
+            Jalankan migration 004 + 005 di Supabase SQL Editor
           </li>
           <li className="flex gap-2">
             <span className="font-mono-data text-xs font-semibold text-slate-400">4.</span>
-            Jalankan seed SQL untuk data awal
-          </li>
-          <li className="flex gap-2">
-            <span className="font-mono-data text-xs font-semibold text-slate-400">5.</span>
             Restart dev server: <code className="font-mono-data text-xs bg-slate-100 px-1 py-0.5 rounded">npm run dev</code>
           </li>
         </ol>
@@ -51,13 +54,38 @@ export default async function DashboardPage() {
     return <SetupMessage />;
   }
 
-  let initialTargets;
   try {
-    initialTargets = await getTargets();
+    const [aircraft, stats, latestUploadTime, analysisData] = await Promise.all([
+      getAircraftWithLatestReading(),
+      getDashboardStats(),
+      getLatestUploadTime(),
+      getAnalysisData(),
+    ]);
+
+    // Fetch history for each aircraft in parallel
+    const historyEntries = await Promise.all(
+      aircraft.map(async (a) => {
+        const history = await getAircraftHistory(a.aircraft_address);
+        return [a.aircraft_address, history] as [string, PaHistoryEntry[]];
+      })
+    );
+
+    const historyMap: Record<string, PaHistoryEntry[]> = {};
+    for (const [address, history] of historyEntries) {
+      historyMap[address] = history;
+    }
+
+    return (
+      <DashboardClient
+        initialAircraft={aircraft}
+        initialStats={stats}
+        latestUploadTime={latestUploadTime}
+        initialHistoryMap={historyMap}
+        initialAnalysisData={analysisData}
+      />
+    );
   } catch {
-    // If Supabase query fails, also show setup message
+    // If Supabase query fails, show setup message
     return <SetupMessage />;
   }
-
-  return <DashboardClient initialTargets={initialTargets} />;
 }

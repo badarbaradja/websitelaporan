@@ -18,23 +18,25 @@ import {
   AlertTriangle,
   AlertOctagon,
   Activity,
-  Gauge,
   Info,
   ChevronDown,
   TrendingUp,
   TrendingDown,
   Globe,
-  Wifi,
-  WifiOff,
-  PlusCircle,
+  Upload,
   Volume2,
   VolumeX,
+  Clock,
+  FileText,
+  Database,
 } from "lucide-react";
 import Link from "next/link";
-import type { TargetWithPa } from "@/lib/queries";
+import type { AircraftWithLatestReading, DashboardStats, PaHistoryEntry, AnalysisReading } from "@/lib/queries";
+import { formatDateTime, formatShortTime } from "@/lib/queries";
+import AnalysisPanel from "./AnalysisPanel";
 
 /* ------------------------------------------------------------------
- * Shared constants & helpers  (unchanged from prototype)
+ * Shared constants & helpers
  * ------------------------------------------------------------------ */
 
 const PA_LEGEND = [
@@ -62,7 +64,7 @@ const NAVY_DEEP = "#071c47";
 const SKY = "#38bdf8";
 
 /* ------------------------------------------------------------------
- * Sub-components  (unchanged from prototype)
+ * Sub-components
  * ------------------------------------------------------------------ */
 
 function Badge({ tone, children }: { tone: "good" | "warn" | "bad"; children: React.ReactNode }) {
@@ -78,18 +80,18 @@ function Badge({ tone, children }: { tone: "good" | "warn" | "bad"; children: Re
   );
 }
 
-function RadarSweep({ targets }: { targets: TargetWithPa[] }) {
+function RadarSweep({ aircraft }: { aircraft: AircraftWithLatestReading[] }) {
   const blips = useMemo(
     () =>
-      targets.slice(0, 8).map((t, i) => {
-        const angle = (i / targets.length) * 360 + (i % 2 === 0 ? 10 : -15);
+      aircraft.slice(0, 8).map((t, i) => {
+        const angle = (i / Math.max(aircraft.length, 1)) * 360 + (i % 2 === 0 ? 10 : -15);
         const radius = 28 + ((i * 37) % 58);
         const rad = (angle * Math.PI) / 180;
         const x = 50 + radius * Math.cos(rad) * 0.45;
         const y = 50 + radius * Math.sin(rad) * 0.45;
         return { ...t, x, y };
       }),
-    [targets]
+    [aircraft]
   );
 
   return (
@@ -128,10 +130,10 @@ function RadarSweep({ targets }: { targets: TargetWithPa[] }) {
         const t = TONE[s.tone];
         return (
           <div
-            key={b.id}
+            key={b.aircraft_address}
             className="airnav-blip absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full"
             style={{ left: `${b.x}%`, top: `${b.y}%`, backgroundColor: t.dot, boxShadow: `0 0 8px ${t.dot}` }}
-            title={`${b.id} · PA ${b.pa}`}
+            title={`${b.callsign ?? b.aircraft_address} · PA ${b.pa}`}
           />
         );
       })}
@@ -150,24 +152,59 @@ function RadarSweep({ targets }: { targets: TargetWithPa[] }) {
  * ------------------------------------------------------------------ */
 
 type FOMDashboardProps = {
-  targets: TargetWithPa[];
-  isConnected: boolean;
+  aircraft: AircraftWithLatestReading[];
+  stats: DashboardStats;
+  latestUploadTime: string | null;
+  historyMap: Record<string, PaHistoryEntry[]>;
+  analysisData: AnalysisReading[];
   soundEnabled: boolean;
   onToggleSound: () => void;
   onTestSound: () => void;
 };
 
-export default function FOMDashboard({ targets, isConnected, soundEnabled, onToggleSound, onTestSound }: FOMDashboardProps) {
-  const [selectedId, setSelectedId] = useState("CPA332");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+export default function FOMDashboard({
+  aircraft,
+  stats,
+  latestUploadTime,
+  historyMap,
+  analysisData,
+  soundEnabled,
+  onToggleSound,
+  onTestSound,
+}: FOMDashboardProps) {
+  const [selectedAddress, setSelectedAddress] = useState<string>(aircraft[0]?.aircraft_address ?? "");
+  const [expandedAddress, setExpandedAddress] = useState<string | null>(null);
 
-  const selected = targets.find((t) => t.id === selectedId) ?? targets[0];
+  const selected = aircraft.find((a) => a.aircraft_address === selectedAddress) ?? aircraft[0];
 
-  // Guard: if targets is empty, show placeholder
+  // Guard: if aircraft is empty, show placeholder
   if (!selected) {
     return (
-      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: "#f4f8fc" }}>
-        <p className="text-slate-500">Belum ada data target. Jalankan seed SQL terlebih dahulu.</p>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4" style={{ backgroundColor: "#f4f8fc" }}>
+        <div className="max-w-md rounded-2xl bg-white p-8 shadow-sm text-center" style={{ border: "1px solid #e3ecf7" }}>
+          <div className="flex items-center justify-center mb-4">
+            <div
+              className="flex h-14 w-14 items-center justify-center rounded-full"
+              style={{ backgroundColor: "rgba(56,189,248,0.1)", border: "1px solid rgba(56,189,248,0.3)" }}
+            >
+              <Upload size={24} color={SKY} />
+            </div>
+          </div>
+          <h2 className="font-display text-lg font-semibold mb-2" style={{ color: NAVY }}>
+            Belum ada data — upload CSV pertama
+          </h2>
+          <p className="text-sm text-slate-500 mb-6">
+            Dashboard akan menampilkan data setelah Anda mengunggah file CSV hasil observasi ADS-B.
+          </p>
+          <Link
+            href="/upload"
+            className="inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold text-white transition-all hover:opacity-90"
+            style={{ backgroundColor: NAVY, boxShadow: "0 4px 20px rgba(10,42,102,0.3)" }}
+          >
+            <Upload size={16} />
+            Upload CSV Pertama
+          </Link>
+        </div>
       </div>
     );
   }
@@ -175,18 +212,15 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
   const selectedStatus = statusOf(selected.pa);
   const selectedTone = TONE[selectedStatus.tone];
 
-  // Build chart data from history — use relative time labels
-  const TIME_LABELS = ["-35m", "-30m", "-25m", "-20m", "-15m", "-10m", "-5m", "Now"];
-  const chartData = selected.history.map((pa, i) => ({
-    label: TIME_LABELS[i] ?? `-${(selected.history.length - 1 - i) * 5}m`,
-    pa,
+  // Build chart data from history
+  const selectedHistory = historyMap[selected.aircraft_address] ?? [];
+  const chartData = selectedHistory.map((h) => ({
+    label: formatShortTime(h.recorded_at),
+    pa: h.pa,
+    fullTime: formatDateTime(h.recorded_at),
   }));
 
-  const avgPA = (targets.reduce((s, t) => s + t.pa, 0) / targets.length).toFixed(1);
-  const warnCount = targets.filter((t) => t.pa === 6).length;
-  const criticalCount = targets.filter((t) => t.pa < 6).length;
-
-  const alerts = targets.filter((t) => t.pa <= 6).sort((a, b) => a.pa - b.pa);
+  const alerts = aircraft.filter((a) => a.pa <= 6).sort((a, b) => a.pa - b.pa);
 
   return (
     <div
@@ -197,17 +231,10 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
       <div className="w-full text-xs font-medium text-white" style={{ backgroundColor: NAVY_DEEP }}>
         <div className="mx-auto flex max-w-[1200px] items-center justify-between px-6 py-1.5">
           <span className="font-mono-data inline-flex items-center gap-2 tracking-wide" style={{ color: "rgba(186,222,255,0.85)" }}>
-            {isConnected ? (
-              <>
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.6)]" />
-                LIVE — terhubung ke database
-              </>
-            ) : (
-              <>
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.6)]" />
-                TERPUTUS — mencoba menghubungkan kembali...
-              </>
-            )}
+            <Clock size={12} />
+            {latestUploadTime
+              ? `Data upload terakhir: ${formatDateTime(latestUploadTime)}`
+              : "Belum ada data — upload CSV pertama"}
           </span>
           <span className="flex items-center gap-2">
             <button
@@ -236,15 +263,8 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
               Tes ♪
             </button>
             <span className="hidden items-center gap-1.5 sm:flex" style={{ color: "rgba(186,222,255,0.85)" }}>
-              {isConnected ? (
-                <>
-                  <Wifi size={12} /> Realtime · Supabase
-                </>
-              ) : (
-                <>
-                  <WifiOff size={12} /> Koneksi terputus
-                </>
-              )}
+              <Database size={12} />
+              Riwayat · Supabase
             </span>
           </span>
         </div>
@@ -270,12 +290,20 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
             </div>
             <div className="flex items-center gap-3">
               <Link
-                href="/input"
+                href="/upload"
                 className="hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-white/15 sm:flex"
                 style={{ backgroundColor: "rgba(56,189,248,0.15)", border: "1px solid rgba(56,189,248,0.4)", color: SKY }}
               >
-                <PlusCircle size={14} />
-                Catat PA Baru
+                <Upload size={14} />
+                Upload CSV Baru
+              </Link>
+              <Link
+                href="/riwayat"
+                className="hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-white/15 sm:flex"
+                style={{ backgroundColor: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: "rgba(186,222,255,0.85)" }}
+              >
+                <FileText size={14} />
+                Riwayat
               </Link>
               <div
                 className="hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold sm:flex"
@@ -318,7 +346,7 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
                 </div>
               </div>
             </div>
-            <RadarSweep targets={targets} />
+            <RadarSweep aircraft={aircraft} />
           </div>
         </div>
       </div>
@@ -327,10 +355,10 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
       <div className="mx-auto max-w-[1200px] px-6">
         <div className="-mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
           {[
-            { label: "Target terpantau", value: targets.length, icon: Plane, tone: "good" as const },
-            { label: "Rata-rata nilai PA", value: avgPA, icon: Gauge, tone: "good" as const },
-            { label: "Perlu perhatian (PA=6)", value: warnCount, icon: AlertTriangle, tone: "warn" as const },
-            { label: "Kualitas menurun (PA<6)", value: criticalCount, icon: AlertOctagon, tone: "bad" as const },
+            { label: "Pesawat terpantau", value: stats.aircraftCount, icon: Plane, tone: "good" as const },
+            { label: "Upload tersimpan", value: stats.uploadCount, icon: Upload, tone: "good" as const },
+            { label: "Perlu perhatian (PA=6)", value: stats.warnCount, icon: AlertTriangle, tone: "warn" as const },
+            { label: "Kualitas menurun (PA<6)", value: stats.criticalCount, icon: AlertOctagon, tone: "bad" as const },
           ].map((k) => {
             const t = TONE[k.tone];
             const Icon = k.icon;
@@ -351,16 +379,26 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
         </div>
       </div>
 
-      {/* ---------- Mobile input link ---------- */}
+      {/* ---------- Mobile nav links ---------- */}
       <div className="mx-auto max-w-[1200px] px-6 pt-4 sm:hidden">
-        <Link
-          href="/input"
-          className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white transition-colors"
-          style={{ backgroundColor: NAVY, border: "1px solid rgba(56,189,248,0.3)" }}
-        >
-          <PlusCircle size={16} />
-          Catat PA Baru
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/upload"
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white transition-colors"
+            style={{ backgroundColor: NAVY, border: "1px solid rgba(56,189,248,0.3)" }}
+          >
+            <Upload size={16} />
+            Upload CSV
+          </Link>
+          <Link
+            href="/riwayat"
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-colors"
+            style={{ backgroundColor: "#ffffff", border: "1px solid #e3ecf7", color: NAVY }}
+          >
+            <FileText size={16} />
+            Riwayat
+          </Link>
+        </div>
       </div>
 
       {/* ---------- Main content ---------- */}
@@ -372,69 +410,82 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
               <h2 className="font-display text-base font-semibold" style={{ color: NAVY }}>
                 Target Pesawat
               </h2>
-              <p className="text-xs text-slate-500">Klik baris untuk melihat detail parameter &amp; tren PA</p>
+              <p className="text-xs text-slate-500">Klik baris untuk melihat tren PA</p>
             </div>
             <Satellite size={16} className="text-slate-400" />
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-sm">
+            <table className="w-full min-w-[700px] text-left text-sm">
               <thead>
                 <tr className="text-xs uppercase tracking-wide text-slate-400">
-                  <th className="px-5 py-2 font-medium">Flight ID</th>
-                  <th className="px-5 py-2 font-medium">Negara</th>
+                  <th className="px-5 py-2 font-medium">Callsign</th>
+                  <th className="px-5 py-2 font-medium">Address</th>
+                  <th className="px-5 py-2 font-medium">Registrasi</th>
+                  <th className="px-5 py-2 font-medium">Airline</th>
                   <th className="px-5 py-2 font-medium">PA</th>
                   <th className="px-5 py-2 font-medium">Status</th>
-                  <th className="px-5 py-2 font-medium">Update</th>
+                  <th className="px-5 py-2 font-medium">Level</th>
+                  <th className="px-5 py-2 font-medium">Terakhir</th>
                 </tr>
               </thead>
               <tbody>
-                {targets.map((t) => {
-                  const st = statusOf(t.pa);
-                  const isOpen = expandedId === t.id;
-                  const isSelected = selectedId === t.id;
+                {aircraft.map((a) => {
+                  const st = statusOf(a.pa);
+                  const isOpen = expandedAddress === a.aircraft_address;
+                  const isSelected = selectedAddress === a.aircraft_address;
                   return (
-                    <Fragment key={t.id}>
+                    <Fragment key={a.aircraft_address}>
                       <tr
                         className="airnav-row cursor-pointer border-t"
                         style={{ borderColor: "#eef3fa", backgroundColor: isSelected ? "#f0f6ff" : "transparent" }}
                         onClick={() => {
-                          setSelectedId(t.id);
-                          setExpandedId(isOpen ? null : t.id);
+                          setSelectedAddress(a.aircraft_address);
+                          setExpandedAddress(isOpen ? null : a.aircraft_address);
                         }}
                       >
                         <td className="font-mono-data px-5 py-3 font-semibold" style={{ color: NAVY }}>
-                          <span className="mr-2">{t.flag}</span>
-                          {t.id}
+                          {a.callsign || "—"}
                         </td>
-                        <td className="px-5 py-3 text-slate-600">{t.country}</td>
-                        <td className="font-mono-data px-5 py-3 font-semibold">{t.pa}</td>
+                        <td className="font-mono-data px-5 py-3 text-slate-600 text-xs">
+                          {a.aircraft_address}
+                        </td>
+                        <td className="px-5 py-3 text-slate-600">{a.registration || "—"}</td>
+                        <td className="px-5 py-3 text-slate-600">{a.airline || "—"}</td>
+                        <td className="font-mono-data px-5 py-3 font-semibold">{a.pa}</td>
                         <td className="px-5 py-3">
                           <Badge tone={st.tone}>{st.label}</Badge>
                         </td>
+                        <td className="font-mono-data px-5 py-3 text-slate-600">{a.level ?? "—"}</td>
                         <td className="px-5 py-3 text-xs text-slate-400">
                           <span className="inline-flex items-center gap-1">
                             <ChevronDown
                               size={13}
                               style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
                             />
-                            {t.updated}
+                            {formatDateTime(a.recorded_at)}
                           </span>
                         </td>
                       </tr>
                       {isOpen && (
                         <tr className="border-t" style={{ borderColor: "#eef3fa", backgroundColor: "#f8fbff" }}>
-                          <td colSpan={5} className="px-5 py-4">
-                            <p className="mb-3 text-sm text-slate-600">{t.note}</p>
+                          <td colSpan={8} className="px-5 py-4">
                             <div className="flex flex-wrap gap-2">
-                              {Object.entries(t.params).map(([k, v]) => (
-                                <span
-                                  key={k}
-                                  className="font-mono-data rounded-md px-2 py-1 text-xs"
-                                  style={{ backgroundColor: "#eef3fa", color: "#3a5a8f" }}
-                                >
-                                  {k} = {v}
+                              <span className="font-mono-data rounded-md px-2 py-1 text-xs" style={{ backgroundColor: "#eef3fa", color: "#3a5a8f" }}>
+                                ICAO = {a.aircraft_address}
+                              </span>
+                              {a.registration && (
+                                <span className="font-mono-data rounded-md px-2 py-1 text-xs" style={{ backgroundColor: "#eef3fa", color: "#3a5a8f" }}>
+                                  REG = {a.registration}
                                 </span>
-                              ))}
+                              )}
+                              {a.airline && (
+                                <span className="font-mono-data rounded-md px-2 py-1 text-xs" style={{ backgroundColor: "#eef3fa", color: "#3a5a8f" }}>
+                                  Airline = {a.airline}
+                                </span>
+                              )}
+                              <span className="font-mono-data rounded-md px-2 py-1 text-xs" style={{ backgroundColor: "#eef3fa", color: "#3a5a8f" }}>
+                                History = {(historyMap[a.aircraft_address] ?? []).length} readings
+                              </span>
                             </div>
                           </td>
                         </tr>
@@ -462,23 +513,33 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
               )}
             </div>
             <p className="font-mono-data mb-4 text-xs text-slate-400">
-              {selected.flag} {selected.id} · {selected.country}
+              {selected.callsign ?? selected.aircraft_address} · {selected.airline ?? "Unknown"}
             </p>
             <div style={{ height: 180 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 5, right: 8, left: -18, bottom: 0 }}>
-                  <CartesianGrid stroke="#eef3fa" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                  <YAxis domain={[0, 9]} tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                  <ReferenceLine y={7} stroke="#a9e2bf" strokeDasharray="3 3" />
-                  <ReferenceLine y={6} stroke="#f3cc7d" strokeDasharray="3 3" />
-                  <Tooltip
-                    contentStyle={{ borderRadius: 8, border: "1px solid #e3ecf7", fontSize: 12 }}
-                    formatter={(v) => [v, "PA"]}
-                  />
-                  <Line type="monotone" dataKey="pa" stroke={selectedTone.dot} strokeWidth={2.5} dot={{ r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
+              {chartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 5, right: 8, left: -18, bottom: 0 }}>
+                    <CartesianGrid stroke="#eef3fa" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 9]} tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                    <ReferenceLine y={7} stroke="#a9e2bf" strokeDasharray="3 3" />
+                    <ReferenceLine y={6} stroke="#f3cc7d" strokeDasharray="3 3" />
+                    <Tooltip
+                      contentStyle={{ borderRadius: 8, border: "1px solid #e3ecf7", fontSize: 12 }}
+                      formatter={(v: any) => [v, "PA"]}
+                      labelFormatter={(_label: any, payload: any) => {
+                        if (payload && payload[0]?.payload?.fullTime) return payload[0].payload.fullTime;
+                        return _label as string;
+                      }}
+                    />
+                    <Line type="monotone" dataKey="pa" stroke={selectedTone.dot} strokeWidth={2.5} dot={{ r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center text-xs text-slate-400">
+                  Belum ada data histori untuk pesawat ini.
+                </div>
+              )}
             </div>
           </div>
 
@@ -514,26 +575,26 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
               </h3>
             </div>
             {alerts.length === 0 ? (
-              <p className="text-xs text-slate-400">Tidak ada target dengan PA ≤ 6 saat ini.</p>
+              <p className="text-xs text-slate-400">Tidak ada pesawat dengan PA ≤ 6 saat ini.</p>
             ) : (
               <div className="flex flex-col gap-2">
-                {alerts.map((t) => {
-                  const st = statusOf(t.pa);
+                {alerts.map((a) => {
+                  const st = statusOf(a.pa);
                   const tone = TONE[st.tone];
                   return (
                     <button
-                      key={t.id}
+                      key={a.aircraft_address}
                       onClick={() => {
-                        setSelectedId(t.id);
-                        setExpandedId(t.id);
+                        setSelectedAddress(a.aircraft_address);
+                        setExpandedAddress(a.aircraft_address);
                       }}
                       className="flex items-start gap-2 rounded-lg p-2 text-left"
                       style={{ backgroundColor: tone.bg }}
                     >
                       <AlertTriangle size={14} className="mt-0.5 shrink-0" style={{ color: tone.text }} />
                       <span className="text-xs" style={{ color: tone.text }}>
-                        <span className="font-mono-data font-semibold">{t.id}</span> — PA turun ke {t.pa}.{" "}
-                        {t.pa < 6 ? "Berpotensi intermittent target." : "Perlu pemantauan lanjut."}
+                        <span className="font-mono-data font-semibold">{a.callsign ?? a.aircraft_address}</span> — PA {a.pa}.{" "}
+                        {a.pa < 6 ? "Berpotensi intermittent target." : "Perlu pemantauan lanjut."}
                       </span>
                     </button>
                   );
@@ -544,6 +605,13 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
         </div>
       </div>
 
+      {/* ---------- Analysis Panel ---------- */}
+      {analysisData.length > 0 && (
+        <div className="mx-auto max-w-[1200px] px-6 pb-8">
+          <AnalysisPanel data={analysisData} />
+        </div>
+      )}
+
       {/* ---------- Footer ---------- */}
       <div className="border-t" style={{ borderColor: "#e3ecf7" }}>
         <div className="mx-auto flex max-w-[1200px] flex-col gap-2 px-6 py-6 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
@@ -552,8 +620,10 @@ export default function FOMDashboard({ targets, isConnected, soundEnabled, onTog
             Basis analisis: Kerja Praktik Unit Surveillance JATSC, AirNav Indonesia — data stream CAT21 Ed. 0.26.
           </span>
           <span className="flex items-center gap-1.5">
-            {isConnected ? <Wifi size={12} className="text-green-500" /> : <WifiOff size={12} className="text-red-400" />}
-            {isConnected ? "Terhubung ke Supabase · Realtime aktif" : "Koneksi ke Supabase terputus"}
+            <Database size={12} className="text-slate-400" />
+            {latestUploadTime
+              ? `Upload terakhir: ${formatDateTime(latestUploadTime)}`
+              : "Belum ada upload"}
           </span>
         </div>
       </div>

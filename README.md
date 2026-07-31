@@ -5,28 +5,93 @@ Dashboard untuk memantau kualitas data ADS-B berdasarkan nilai
 tindak lanjut dari usulan pengembangan pada laporan Kerja Praktik di Unit
 Surveillance JATSC, AirNav Indonesia.
 
-Dibangun dengan **Next.js** (App Router, TypeScript) + **Supabase** (Postgres,
-Realtime) + **Tailwind CSS** + **recharts** + **lucide-react**.
+Dibangun dengan **Next.js** (App Router, TypeScript) + **Supabase** (Postgres)
++ **Tailwind CSS** + **recharts** + **lucide-react** + **PapaParse**.
 
 ---
 
-## 1. Isi proyek
+## 1. Alur Data
+
+Data PA **tidak** dihasilkan oleh simulator — data asli didapat dari **observasi
+manual teknisi** di layar ADS-B Display, diekspor sebagai **file CSV**, lalu
+**diupload** ke web ini untuk disimpan sebagai riwayat dan dianalisis.
+
+```
+Layar ADS-B → Teknisi catat → Ekspor CSV → Upload ke web → Dashboard & Analisis
+```
+
+## 2. Isi Proyek
 
 | Direktori / File | Fungsi |
 |---|---|
 | `src/app/page.tsx` | Halaman dashboard utama |
-| `src/app/input/page.tsx` | Halaman input PA manual |
-| `src/components/FOMDashboard.tsx` | Komponen dashboard (radar sweep, tabel, grafik, KPI) |
-| `src/components/DashboardClient.tsx` | Client wrapper + Supabase Realtime subscription + toast state |
-| `src/components/AlertToast.tsx` | Toast notification untuk alert PA < 6 |
+| `src/app/upload/page.tsx` | Halaman upload CSV |
+| `src/app/riwayat/page.tsx` | Halaman daftar riwayat upload |
+| `src/app/riwayat/[id]/page.tsx` | Detail satu upload |
+| `src/components/FOMDashboard.tsx` | Komponen dashboard (radar sweep, tabel, grafik, KPI, analisis) |
+| `src/components/DashboardClient.tsx` | Client wrapper untuk sound controls |
+| `src/components/UploadClient.tsx` | Komponen upload CSV (parse, preview, validasi, submit) |
+| `src/components/AnalysisPanel.tsx` | Panel analisis (masalah pesawat & gangguan ground station) |
+| `src/components/AlertToast.tsx` | Toast notification untuk alert PA ≤ 6 |
 | `src/lib/supabase.ts` | Supabase client singleton |
-| `src/lib/queries.ts` | Data layer (getTargets, addPaReading, dst.) |
-| `supabase/migrations/` | SQL schema, RLS policies, pg_cron simulator |
-| `supabase/seed.sql` | Data awal (8 target + 64 PA readings) |
-| `scripts/simulate.mjs` | Simulator PA — insert data acak untuk demo |
-| `FOMDashboard.jsx` | Prototipe asli (referensi, tidak dipakai lagi) |
+| `src/lib/queries.ts` | Data layer (semua query ke Supabase) |
+| `src/lib/playAlertSound.ts` | Web Audio API alert tones |
+| `supabase/migrations/` | SQL schema & migration files |
+| `supabase/seed_v2.sql` | Seed file (kosongkan data, isi lewat CSV upload) |
 
-## 2. Setup
+## 3. Skema Database Baru
+
+### Tabel `aircraft`
+| Kolom | Tipe | Keterangan |
+|---|---|---|
+| `aircraft_address` | text (PK) | ICAO 24-bit hex, mis. "7C4A11" |
+| `registration` | text | Registrasi pesawat, mis. "B-HNH" |
+| `airline` | text | Nama airline |
+| `last_callsign` | text | Callsign terakhir yang tercatat |
+| `created_at` | timestamptz | Waktu pertama kali tercatat |
+
+### Tabel `uploads`
+| Kolom | Tipe | Keterangan |
+|---|---|---|
+| `id` | uuid (PK) | Auto-generated |
+| `filename` | text | Nama file CSV yang diupload |
+| `observed_at` | timestamptz | Waktu pengamatan (diisi user saat upload) |
+| `uploaded_at` | timestamptz | Waktu upload (otomatis) |
+| `row_count` | int | Jumlah baris dalam upload |
+| `notes` | text | Catatan opsional |
+
+### Tabel `pa_readings`
+| Kolom | Tipe | Keterangan |
+|---|---|---|
+| `id` | bigint (PK) | Auto-generated identity |
+| `aircraft_address` | text (FK) | Referensi ke aircraft |
+| `upload_id` | uuid (FK) | Referensi ke uploads |
+| `callsign` | text | Callsign saat pengamatan |
+| `pa` | smallint | Nilai PA (0-9) |
+| `level` | integer | Flight level |
+| `recorded_at` | timestamptz | Waktu pengamatan |
+
+## 4. Format CSV yang Didukung
+
+File CSV harus memiliki header berikut (case-insensitive):
+
+| Header | Keterangan | Wajib |
+|---|---|---|
+| `callsign` | Callsign pesawat | Ya |
+| `aircraft_address` | ICAO 24-bit hex address | Ya (tidak boleh kosong) |
+| `registrasi_pesawat` | Registrasi pesawat | Tidak |
+| `pa` | Nilai Position Accuracy (0-9) | Ya (harus angka 0-9) |
+| `level` | Flight level | Tidak |
+| `airline` | Nama airline | Tidak |
+
+Contoh baris CSV:
+```csv
+callsign,aircraft_address,registrasi_pesawat,pa,level,airline
+CPA332,7C4A11,B-HNH,8,350,Cathay Pacific
+GIA402,76CEE8,PK-GMH,9,370,Garuda Indonesia
+```
+
+## 5. Setup
 
 ### Prasyarat
 - Node.js ≥ 20
@@ -44,145 +109,66 @@ cp .env.local.example .env.local
 
 # 3. Jalankan migration SQL
 # Buka Supabase Dashboard → SQL Editor → New query
-# Paste isi supabase/migrations/001_create_tables.sql → Run
-# Paste isi supabase/migrations/002_rls_policies.sql → Run
-# Paste isi supabase/migrations/003_pg_cron_simulator.sql → Run  (simulator otomatis)
+# Paste & Run secara berurutan:
+#   supabase/migrations/004_cleanup_simulator.sql
+#   supabase/migrations/005_csv_upload_schema.sql
 
-# 4. Jalankan seed data
-# Paste isi supabase/seed.sql di SQL Editor → Run
+# 4. (Opsional) Jalankan seed untuk kosongkan data
+# Paste isi supabase/seed_v2.sql di SQL Editor → Run
 
-# 5. Aktifkan Realtime
-# Supabase Dashboard → Database → Replication → centang tabel pa_readings
-
-# 6. Jalankan dev server
+# 5. Jalankan dev server
 npm run dev
 ```
 
-Buka `http://localhost:3000` — dashboard harus tampil dengan data dari Supabase.
+Buka `http://localhost:3000` — dashboard akan tampil dengan pesan
+"Belum ada data — upload CSV pertama" (karena belum ada data di database).
 
-## 3. Halaman Input
+## 6. Testing dengan File CSV Dummy
 
-Buka `http://localhost:3000/input` untuk mencatat nilai PA secara manual.
-Form ini mensimulasikan petugas yang membaca nilai PA dari layar Intelcan
-ADS-B Display dan mencatatnya ke sistem.
+Tersedia 3 file CSV dummy untuk testing:
+- `dummy_upload_sesi1_pagi.csv` — sesi pagi
+- `dummy_upload_sesi2_siang.csv` — sesi siang
+- `dummy_upload_sesi3_sore.csv` — sesi sore
 
-## 4. Simulator PA
+### Cara Testing
 
-Ada **dua cara** menjalankan simulator — pilih sesuai kebutuhan:
+1. Buka `http://localhost:3000/upload`
+2. **Upload sesi 1 (pagi)**:
+   - Set waktu pengamatan ke hari ini **08:00**
+   - Pilih file `dummy_upload_sesi1_pagi.csv`
+   - Periksa preview → klik "Simpan Data"
+3. **Upload sesi 2 (siang)**:
+   - Kembali ke /upload
+   - Set waktu pengamatan ke hari ini **13:00**
+   - Pilih file `dummy_upload_sesi2_siang.csv`
+   - Simpan
+4. **Upload sesi 3 (sore)**:
+   - Kembali ke /upload
+   - Set waktu pengamatan ke hari ini **17:00**
+   - Pilih file `dummy_upload_sesi3_sore.csv`
+   - Simpan
 
-### 4a. Server-side (pg_cron) — ✅ Direkomendasikan
+### Yang Harus Terlihat Setelah 3 Upload
 
-Simulator jalan **otomatis di server Supabase** setiap **1 menit**, tanpa
-perlu laptop menyala. Data PA terus terisi 24/7 selama cron job aktif.
+- **Dashboard**: Tabel menampilkan semua pesawat dengan PA terbaru (dari sesi 3)
+- **Grafik tren**: Klik satu pesawat → grafik menunjukkan 3 titik data (pagi, siang, sore)
+- **Panel Analisis A**: CPA332 (Cathay Pacific) muncul sebagai pesawat dengan tren menurun konsisten
+- **Panel Analisis B**: Sesi 3 (sore) muncul sebagai sesi dengan indikasi gangguan ground station (banyak pesawat drop bersamaan)
+- **Halaman /riwayat**: 3 upload terlist dengan detail masing-masing
 
-**Setup sekali:**
-```bash
-# Paste isi file berikut di Supabase Dashboard → SQL Editor → Run:
-supabase/migrations/003_pg_cron_simulator.sql
-```
+## 7. Toast Notification + Suara Alert
 
-Setelah dijalankan, function `simulate_pa_tick()` terjadwal via pg_cron.
-Setiap menit, satu target dipilih acak dan PA-nya diupdate menggunakan
-random walk (sama persis dengan logic di `scripts/simulate.mjs`).
+Setelah upload yang mengandung PA ≤ 6, toast notification muncul di pojok
+kanan atas halaman upload. Dua jenis berdasarkan tingkat keparahan:
 
-- `recorded_by` diisi `'Simulator (cron)'` agar mudah dibedakan dari
-  input manual atau simulator lokal.
-- pg_cron berjalan sebagai role `postgres` (bukan `anon`), sehingga
-  **RLS tidak menghalangi** insert-nya.
+| Kondisi | Tone | Warna Toast | Suara |
+|---|---|---|---|
+| PA terendah = 6 | `warn` | Kuning (amber) | 1× beep rendah (660Hz) |
+| PA terendah < 6 | `bad` | Merah | Loop double beep (880→660Hz) |
 
-> **Catatan:** pg_cron minimum interval = 1 menit. Untuk update lebih
-> cepat, gunakan simulator lokal di bawah.
+Toggle mute/unmute ada di top bar dashboard (key localStorage: `fom-alert-sound-enabled`).
 
-### 4b. Simulator lokal (untuk demo cepat)
-
-Untuk presentasi langsung yang butuh data berubah setiap 5–8 detik
-(lebih cepat dari cron), jalankan simulator lokal:
-
-```bash
-# Terminal 1 — dev server (kalau belum jalan)
-npm run dev
-
-# Terminal 2 — simulator
-npm run simulate
-```
-
-Output simulator di terminal:
-```
-╔═══════════════════════════════════════════════════╗
-║   FOM Simulator — ADS-B PA Random Walk           ║
-║   Insert baru setiap 5–8 detik                   ║
-║   Tekan Ctrl+C untuk berhenti                    ║
-╚═══════════════════════════════════════════════════╝
-
-[12:03:41] 🇭🇰 CPA332 (Hong Kong) : 7 → 5 ⚠️
-[12:03:47] 🇮🇩 GIA402 (Indonesia) : 9 → 8
-[12:03:53] 🇲🇲 UBA1 (Myanmar) : 7 → 6
-```
-
-Tekan `Ctrl+C` untuk menghentikan.
-
-> **Tips:** Kamu bisa jalankan keduanya bersamaan — cron job sebagai
-> baseline 1 menit, dan simulator lokal untuk burst data saat demo.
-
-### 4c. Menonaktifkan / mengaktifkan kembali cron job
-
-Kalau sewaktu-waktu ingin **menghentikan** simulator server-side, jalankan
-SQL berikut di Supabase SQL Editor:
-
-```sql
--- Hentikan cron job
-select cron.unschedule('simulate-pa-tick');
-```
-
-Untuk **mengaktifkan kembali:**
-
-```sql
--- Aktifkan kembali cron job (1 menit interval)
-select cron.schedule(
-  'simulate-pa-tick',
-  '* * * * *',
-  $$select public.simulate_pa_tick()$$
-);
-```
-
-Untuk **melihat daftar cron job** yang aktif:
-
-```sql
-select jobid, jobname, schedule, command from cron.job;
-```
-
-## 5. Toast Notification + Suara Alert
-
-Setiap kali ada PA reading baru dengan nilai ≤ 6, toast notification muncul
-di pojok kanan atas dashboard. Dua jenis toast berdasarkan tingkat keparahan:
-
-| Kondisi | Tone | Warna Toast | Suara | Pesan |
-|---|---|---|---|---|
-| PA = 6 | `warn` | Kuning (amber) | 1× beep rendah (660Hz) | "Perlu pemantauan lanjut" |
-| PA < 6 | `bad` | Merah | 2× beep tinggi (880→660Hz) | "Berpotensi intermittent target" |
-
-Fitur toast:
-- **Auto-dismiss** setelah 6 detik
-- **Stackable** — beberapa toast bisa muncul bersamaan
-- **Manual close** — klik ikon × untuk menutup lebih awal
-- Animasi slide-in dari kanan + slide-out saat hilang
-
-### Suara Alert (Web Audio API)
-
-Suara alert dihasilkan langsung oleh browser menggunakan Web Audio API
-(oscillator) — tidak membutuhkan file audio eksternal.
-
-**Toggle mute/unmute:** Tombol speaker 🔊/🔇 ada di **top bar** dashboard
-(samping kanan, dekat indikator koneksi). Preferensi disimpan di
-`localStorage` (key: `fom-alert-sound-enabled`), default aktif.
-
-> **⚠️ Catatan autoplay policy:** Browser modern (Chrome, Edge, dll.)
-> memblokir audio yang diputar sebelum ada interaksi user di halaman.
-> **Klik tombol toggle suara sekali di awal sesi** sebelum demo dimulai
-> untuk meng-unlock audio context — setelah itu suara pasti terdengar
-> setiap kali toast muncul.
-
-## 6. Ambang status PA
+## 8. Ambang Status PA
 
 | PA | Status | Warna | Notifikasi |
 |---|---|---|---|
@@ -192,7 +178,7 @@ Suara alert dihasilkan langsung oleh browser menggunakan Web Audio API
 | 6 | Perlu Perhatian | Kuning | Toast ⚠️ + beep |
 | < 6 | Menurun | Merah | Toast 🚨 + double beep |
 
-## 7. Desain
+## 9. Desain
 
 - **Palet warna** — biru navy (`#0a2a66` / `#071c47`) dan putih, dengan
   aksen biru langit (`#38bdf8`) merujuk pada identitas warna AirNav Indonesia.

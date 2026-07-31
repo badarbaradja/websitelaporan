@@ -9,11 +9,14 @@ import { AlertOctagon, AlertTriangle, X } from "lucide-react";
 
 export type ToastData = {
   id: string;
-  targetId: string;
-  flag: string;
-  country: string;
+  /** Short title — e.g. aircraft callsign, or "Upload selesai" */
+  title: string;
+  /** PA value (for badge display) */
   pa: number;
-  time: string;
+  /** Detail message */
+  message: string;
+  /** Subtitle — e.g. airline, or timestamp */
+  subtitle: string;
   tone: "warn" | "bad";
 };
 
@@ -62,11 +65,6 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
   const s = TOAST_STYLES[toast.tone];
 
   const Icon = toast.tone === "bad" ? AlertOctagon : AlertTriangle;
-
-  const message =
-    toast.tone === "bad"
-      ? `PA turun ke ${toast.pa}. Berpotensi intermittent target.`
-      : `PA turun ke 6. Perlu pemantauan lanjut.`;
 
   const dismiss = useCallback(() => {
     setExiting(true);
@@ -120,7 +118,7 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
             className="font-mono-data text-sm font-semibold"
             style={{ color: s.titleColor }}
           >
-            {toast.flag} {toast.targetId}
+            {toast.title}
           </span>
           <span
             className="font-mono-data inline-flex items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-bold"
@@ -135,11 +133,11 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
           </span>
         </div>
         <p className="mt-1 text-xs leading-relaxed" style={{ color: s.bodyColor }}>
-          {message}
+          {toast.message}
         </p>
         <div className="mt-1 flex items-center gap-2">
           <span className="text-[10px]" style={{ color: "#94a3b8" }}>
-            {toast.country} · {toast.time}
+            {toast.subtitle}
           </span>
         </div>
       </div>
